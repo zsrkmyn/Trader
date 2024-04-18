@@ -24,13 +24,13 @@ def config_root_logger():
     },
     datefmt='%Y-%m-%d %H:%M:%S')
   console_handler = logging.StreamHandler()
-  console_handler.setLevel(logging.INFO)
+  console_handler.setLevel(logging.DEBUG)
   console_handler.setFormatter(formatter)
   root_logger.addHandler(console_handler)
 
 config_root_logger()
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 from okx.Account import AccountAPI
 from okx.okxclient import OkxClient
@@ -115,7 +115,7 @@ class Trader:
     self.single_amount = single_amount
     self.trading_amount = None
     self.contractor_px = 10 #FIXME
-    self.fee_rate = 0.015 # FIXME
+    self.fee_rate = 0.0015 # FIXME
     self.left_px = 1.
     self.right_px = 1.
     self.state = self.STATE_INIT
@@ -192,42 +192,44 @@ class Trader:
     return True
 
 
-  def place_right_order(self):
+  def place_right_order(self, side, size):
     self.rstate = self.ORDER_STATE_PLACING
-    self.loop.create_task(self.place_right_order_async())
+    self.loop.create_task(self.place_right_order_async(side, size))
 
 
-  async def place_right_order_async(self):
+  async def place_right_order_async(self, side, size):
     o_id = str(self.order_id)
-    size = self.trading_amount / self.left_px * (1. + self.fee_rate)
     self.order_id += 1
     self.r_order_id = o_id
-    logger.info('place right order: buy %s, size: %f, id: %s' % (self.right, size, o_id))
+    logger.info(
+      'place right order: %s %s, size: %f, id: %s' %
+      (side, self.right, size, o_id))
     self.rstate = self.ORDER_STATE_PLACING
     await self.prv_channel.place_order(
       instId=self.right,
       tdMode='cash',        # FIXME
-      side='buy',
+      side=side,
       ordType='market',     # FIXME
       sz=size,
       tgtCcy='base_ccy',
       clOrdId=o_id)
 
 
-  def place_left_order(self, sz):
+  def place_left_order(self, side, sz):
     self.lstate = self.ORDER_STATE_PLACING
-    self.loop.create_task(self.place_left_order_async(sz))
+    self.loop.create_task(self.place_left_order_async(side, sz))
 
 
-  async def place_left_order_async(self, sz):
+  async def place_left_order_async(self, side, sz):
     o_id = str(self.order_id)
     self.order_id += 1
     self.l_order_id = o_id
-    logger.info('place left order: sell %s, size: %d, id: %s' % (self.left, sz, o_id))
+    logger.info(
+      'place left order: %s %s, size: %d, id: %s' % (side ,self.left, sz, o_id))
     await self.prv_channel.place_order(
       instId=self.left,
       tdMode='isolated',    # FIXME
-      side='sell',
+      side=side,
       ordType='market',     # FIXME
       sz=sz,
       clOrdId=o_id)
@@ -247,7 +249,8 @@ class Trader:
     self.trading_amount = contractor_num * self.contractor_px
     if contractor_num == 0:
       return False
-    self.place_right_order()
+    size = self.trading_amount / self.left_px * (1. + self.fee_rate)
+    self.place_right_order('buy', size)
     return True
 
 
@@ -260,9 +263,8 @@ class Trader:
     self.spread_satisfied += 1
     if not self.check_spread(spread):
       return False
-
-    raise NotImplementedError
-
+    self.trading_amount = min(self.single_amount, self.total_amount)
+    self.place_left_order('buy', self.trading_amount)
     return True
 
 
@@ -287,7 +289,11 @@ class Trader:
 
   async def start_monitoring(self):
     logger.info("monitor started; unexecuted amount: %f", self.total_amount)
-    while self.total_amount >= self.contractor_px:
+    if self.mode == self.MODE_OPEN:
+      min_unit = self.contractor_px
+    else:
+      min_unit = 1
+    while self.total_amount >= min_unit:
       self.check_spread_and_trade()
       await asyncio.sleep(1)
     await self.stop_self_and_loop()
@@ -369,32 +375,45 @@ class Trader:
     for data in msg['data']:
       o_id = data['clOrdId']
       state_str = data['state']
-      state = self.order_state_map[data['state']]
+      state = self.order_state_map.get(data['state'])
       fill_sz = data['fillSz']
       if o_id == self.r_order_id:
         self.rstate = state
-        logger.info('right order executed, fill_sz: %s, state: %s' % (fill_sz, state_str))
-        if fill_sz == '0':
-          continue
-        right_remaining = float(fill_sz) + self.right_remaining
-        contractor_px = self.contractor_px
-        # floor the future number
-        size = right_remaining * self.left_px / contractor_px
-        size = int(size + 0.1) # add 0.1 to ignore slipage
-        logger.info('unblanced right holdings: %f' % right_remaining)
+        logger.info(
+          'right order executed, fill_sz: %s, state: %s' % (fill_sz, state_str))
+        if self.mode == self.MODE_OPEN:
+          if fill_sz == '0':
+            continue
+          right_remaining = float(fill_sz) + self.right_remaining
+          contractor_px = self.contractor_px
+          # floor the future number
+          size = right_remaining * self.left_px / contractor_px
+          size = int(size + 0.1) # add 0.1 to ignore slipage
+          logger.info('unblanced right holdings: %f' % right_remaining)
 
-        # FIXME: correct right_remaining by actual trading price
-        self.right_remaining = right_remaining - size * contractor_px / self.left_px
-        if size > 0:
-          self.place_left_order(size)
+          # FIXME: correct right_remaining by actual trading price
+          self.right_remaining = \
+              right_remaining - size * contractor_px / self.left_px
+          if size > 0:
+            self.place_left_order('sell', size)
 
       elif o_id == self.l_order_id:
         self.lstate = state
-        logger.info('left order executed, fill_sz: %s, state: %s' % (fill_sz, state_str))
+        logger.info(
+          'left order executed, fill_sz: %s, state: %s' % (fill_sz, state_str))
+        if self.mode == self.MODE_CLOSE:
+          if fill_sz == '0':
+            continue
+          fill_notional_usd = float(data['fillNotionalUsd'])
+          fill_px = float(data['fillPx'])
+          fill_fee = float(data['fee'])
+          size = fill_notional_usd / fill_px + fill_fee
+          self.place_right_order('sell', size)
       else:
         logger.warning('unknown order recieved, id: %s; ignore it', o_id)
 
-    if self.lstate == self.ORDER_STATE_DONE and \
+    if self.state == self.STATE_TRADING and \
+       self.lstate == self.ORDER_STATE_DONE and \
        self.rstate == self.ORDER_STATE_DONE:
       if self.right_remaining > 0:
         logger.warning(
@@ -443,10 +462,13 @@ class Trader:
 
   def calibrate_local_time(self):
     client = OkxClient(proxy=self.http_proxy)
-    t0 = int(time.time() * 1000)
-    server_time = int(client._get_timestamp())
-    t1 = int(time.time() * 1000)
-    lag = (t1 - t0) // 2
+    lag = []
+    for i in range(3):
+      t0 = int(time.time() * 1000)
+      server_time = int(client._get_timestamp())
+      t1 = int(time.time() * 1000)
+      lag.append((t1 - t0) / 2)
+    lag = round(sum(lag) / len(lag))
     self.time_diff = t1 - (server_time + lag)
     logger.info('local time calibrated, time difference: %d' % self.time_diff)
 
@@ -528,6 +550,7 @@ http_proxy = 'socks5://172.18.80.1:7890'
 # set_trade_mode_and_leverage(future, 'net_mode', '1.5')
 
 loop = asyncio.get_event_loop()
-trader = Trader(loop, future, spot, Trader.MODE_OPEN, 3., 95, 46,
-                lag_threshold=300, http_proxy=http_proxy)
+#trader = Trader(loop, future, spot, Trader.MODE_OPEN, 3., 4000, 713,
+trader = Trader(loop, future, spot, Trader.MODE_CLOSE, 9., 400, 73,
+                lag_threshold=1000, http_proxy=http_proxy)
 trader.run_until_complete()
