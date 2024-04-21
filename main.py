@@ -244,12 +244,18 @@ class Trader:
     self.spread_satisfied += 1
     if not self.check_spread(spread):
       return False
-    self.trading_amount = min(self.single_amount, self.total_amount)
-    contractor_num = int(self.trading_amount / self.contractor_px)
-    self.trading_amount = contractor_num * self.contractor_px
+    # Floor trading_amount (in USDT) to multiple of a single contractor price.
+    # The contractor price is corrected to the actual USDT we need to pay to
+    # short a future contractor.
+    trading_amount = min(self.single_amount, self.total_amount)
+    actual_contract_px = self.contractor_px / self.left_px * self.right_px
+    contractor_num = int(trading_amount / actual_contract_px)
     if contractor_num == 0:
       return False
-    size = self.trading_amount / self.left_px * (1. + self.fee_rate)
+    self.trading_amount = trading_amount = contractor_num * actual_contract_px
+    size = trading_amount / self.right_px * (1. + self.fee_rate)
+    # size also equals,
+    #   contractor_num * self.contractor_px / self.left_px * (1. + self.fee_rate)
     self.place_right_order('buy', size)
     return True
 
