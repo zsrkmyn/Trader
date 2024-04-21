@@ -1,3 +1,5 @@
 config.py
 config_sim.py
 __pycache__/
+log/
+log_sim/

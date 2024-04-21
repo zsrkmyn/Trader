@@ -9,29 +9,6 @@ import logging
 import time
 import traceback
 
-def config_root_logger():
-  level = logging.INFO
-  root_logger = logging.getLogger()
-  root_logger.setLevel(level)
-  formatter = colorlog.ColoredFormatter(
-    '%(log_color)s[%(asctime)s.%(msecs)03d][%(levelname)s][%(module)s:%(lineno)d] %(message)s',
-    log_colors={
-      'DEBUG': 'cyan',
-      'INFO': 'green',
-      'WARNING': 'yellow',
-      'ERROR': 'red',
-      'CRITICAL': 'bold_red',
-    },
-    datefmt='%Y-%m-%d %H:%M:%S')
-  console_handler = logging.StreamHandler()
-  console_handler.setLevel(logging.DEBUG)
-  console_handler.setFormatter(formatter)
-  root_logger.addHandler(console_handler)
-
-config_root_logger()
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 from okx.Account import AccountAPI
 from okx.okxclient import OkxClient
 from okx.websocket.WsPublicAsync import WsPublicAsync
@@ -51,9 +28,6 @@ else:
   WSPubUrl = 'wss://wsaws.okx.com:8443/ws/v5/public'
   WSPrvUrl = 'wss://wsaws.okx.com:8443/ws/v5/private'
 
-
-logging.getLogger('WsPublic').setLevel(level=logging.WARNING)
-logging.getLogger('WsPrivate').setLevel(level=logging.WARNING)
 
 j = json.JSONEncoder(separators=(',', ':'))
 
@@ -76,7 +50,7 @@ class ExtWsPrivateAsync(WsPrivateAsync):
        'sz': sz})
     payload = j.encode(
       {'op': 'order', 'id': str(self.order_id), 'args': [kwargs]})
-    logger.debug('send msg: %s' % payload)
+    logger.debug('prv msg sent: %s' % payload)
     self.order_id += 1
     await self.websocket.send(payload)
 
@@ -321,6 +295,7 @@ class Trader:
 
 
   def handle_pub_msg(self, raw_msg):
+    logger.debug('pub msg recved: %s', raw_msg)
     msg = json.loads(raw_msg)
     ev = msg.get('event')
     if ev == 'subscribe':
@@ -431,6 +406,7 @@ class Trader:
 
 
   def handle_prv_msg(self, raw_msg):
+    logger.debug('prv msg recved: %s', raw_msg)
     msg = json.loads(raw_msg)
     ev = msg.get('event')
     if ev == 'login':
@@ -547,6 +523,53 @@ def set_trade_mode_and_leverage(inst_id, trade_mode, leverage):
       (inst_id, leverage, json.dumps(res)))
   logger.info('set leverage for %s to %s' % (inst_id, leverage))
 
+
+def config_root_logger(level=logging.DEBUG):
+  # Silly okx library calls basicConfig when importing, so set force=true to
+  # clear all existing handlers.
+  logging.basicConfig(level=level, force=True, handlers=())
+  logging.getLogger().setLevel(level)
+
+
+def config_console_logger(level=logging.INFO):
+  formatter = colorlog.ColoredFormatter(
+    '%(log_color)s[%(asctime)s.%(msecs)03d][%(levelname)s][%(module)s:%(lineno)d] %(message)s',
+    log_colors={
+      'DEBUG': 'cyan',
+      'INFO': 'green',
+      'WARNING': 'yellow',
+      'ERROR': 'red',
+      'CRITICAL': 'bold_red',
+    },
+    datefmt='%Y-%m-%d %H:%M:%S')
+  console_handler = logging.StreamHandler()
+  console_handler.setLevel(level)
+  console_handler.setFormatter(formatter)
+  logging.getLogger().addHandler(console_handler)
+
+
+def config_file_logger(filename, level=logging.DEBUG):
+  if filename is None:
+    return
+  formatter = logging.Formatter(
+    '[%(asctime)s.%(msecs)03d][%(levelname)s][%(module)s:%(lineno)d] %(message)s',
+    datefmt='%Y-%m-%D %H:%M:%S')
+  file_handler = logging.FileHandler(filename)
+  file_handler.setLevel(level)
+  file_handler.setFormatter(formatter)
+  logging.getLogger().addHandler(file_handler)
+
+config_root_logger(logging.INFO)
+config_console_logger(logging.INFO)
+logfile = 'log_sim/' if flag == '1' else 'log/'
+logfile = logfile + time.strftime('%Y%m%d-%H%M%S') + '.log'
+config_file_logger(logfile, logging.DEBUG)
+
+logging.getLogger('WsPublic').setLevel(level=logging.WARNING)
+logging.getLogger('WsPrivate').setLevel(level=logging.WARNING)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 spot = 'XRP-USDT'
 future = 'XRP-USD-240927'
