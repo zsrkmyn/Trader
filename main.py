@@ -503,8 +503,7 @@ class Trader:
       loop.close()
 
 
-def set_trade_mode_and_leverage(inst_id, trade_mode, leverage):
-  inst_id = inst_id
+def set_trade_mode(trade_mode):
   account = AccountAPI(
     api_key, secret_key, passphrase, flag=flag,
     debug=False, proxy=http_proxy)
@@ -515,6 +514,11 @@ def set_trade_mode_and_leverage(inst_id, trade_mode, leverage):
       (trade_mode, json.dumps(res)))
   logger.info('set trade mode to %s' % trade_mode)
 
+
+def set_leverage(inst_id, leverage):
+  account = AccountAPI(
+    api_key, secret_key, passphrase, flag=flag,
+    debug=False, proxy=http_proxy)
   res = account.set_leverage(
     instId=inst_id, lever=leverage, mgnMode='isolated')
   if res['code'] != '0':
@@ -576,7 +580,8 @@ future = 'XRP-USD-240927'
 
 http_proxy = 'socks5://172.18.80.1:7890'
 
-# set_trade_mode_and_leverage(future, 'net_mode', '1.5')
+# set_trade_mode('net_mode')
+set_leverage(future, '1.5')
 
 loop = asyncio.get_event_loop()
 #trader = Trader(loop, future, spot, Trader.MODE_OPEN, 3., 4000, 713,
