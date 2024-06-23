@@ -110,8 +110,8 @@ class Trader:
     self.lag_threshold = lag_threshold
     self.lag = 0
     self.order_id = 0
-    self.l_order_id = None
-    self.r_order_id = None
+    self.l_order_ids = []
+    self.r_order_ids = []
     self.right_remaining = 0.
     self.contract_px = self.get_contract_px(left, proxy=http_proxy)
     logger.info('contract price is set to %.2f', self.contract_px)
@@ -184,13 +184,12 @@ class Trader:
 
 
   async def place_right_order_async(self, side, size):
-    o_id = str(self.order_id)
+    o_id = self.order_id
     self.order_id += 1
-    self.r_order_id = o_id
+    self.r_order_ids.append(o_id)
     logger.info(
-      'place right order: %s %s, size: %f, id: %s' %
+      'place right order: %s %s, size: %f, id: %d' %
       (side, self.right, size, o_id))
-    self.rstate = self.ORDER_STATE_PLACING
     await self.prv_channel.place_order(
       instId=self.right,
       tdMode='cash',        # FIXME
@@ -198,7 +197,7 @@ class Trader:
       ordType='market',     # FIXME
       sz=size,
       tgtCcy='base_ccy',
-      clOrdId=o_id)
+      clOrdId=str(o_id))
 
 
   def place_left_order(self, side, sz):
@@ -207,18 +206,18 @@ class Trader:
 
 
   async def place_left_order_async(self, side, sz):
-    o_id = str(self.order_id)
+    o_id = self.order_id
     self.order_id += 1
-    self.l_order_id = o_id
+    self.l_order_ids.append(o_id)
     logger.info(
-      'place left order: %s %s, size: %d, id: %s' % (side ,self.left, sz, o_id))
+      'place left order: %s %s, size: %d, id: %d' % (side ,self.left, sz, o_id))
     await self.prv_channel.place_order(
       instId=self.left,
       tdMode='isolated',    # FIXME
       side=side,
       ordType='market',     # FIXME
       sz=sz,
-      clOrdId=o_id)
+      clOrdId=str(o_id))
 
 
   def try_to_open_position(self, spread):
@@ -354,23 +353,49 @@ class Trader:
       raise TraderError('order error occured, msg: %s' % msg)
 
     o_id = data['clOrdId']
-    if o_id == self.r_order_id:
+    try:
+      o_id = int(o_id)
+    except ValueError:
+      pass
+    if o_id in self.r_order_ids:
       logger.info('right order placed, id: %s' % o_id)
       self.rstate = self.ORDER_STATE_PLACED
-    elif o_id == self.l_order_id:
+    elif o_id in self.l_order_ids:
       logger.info('left order placed, id: %s' % o_id)
       self.lstate = self.ORDER_STATE_PLACED
     else:
       logger.info('unknown order placed, id: %s; ignore it', o_id)
 
 
+  @staticmethod
+  def log_warn_unknown_execed_order(o_id):
+    logger.warning(f'unknown executed order recieved, id: {o_id}; ignore it')
+
+
+  @staticmethod
+  def check_oid(id_list, o_id, do_delete):
+    try:
+      idx = id_list.index(o_id)
+    except ValueError:
+      return False
+    if do_delete:
+      del id_list[idx]
+    return True
+
+
   def handle_order_msg(self, msg):
     for data in msg['data']:
       o_id = data['clOrdId']
+      try:
+        o_id = int(o_id)
+      except ValueError:
+        self.log_warn_unknown_execed_order(o_id)
+        continue
+
       state_str = data['state']
       state = self.order_state_map.get(data['state'])
       fill_sz = data['fillSz']
-      if o_id == self.r_order_id:
+      if self.check_oid(self.r_order_ids, o_id, state==self.ORDER_STATE_DONE):
         self.rstate = state
         logger.info(
           'right order executed, fill_sz: %s, state: %s' % (fill_sz, state_str))
@@ -390,7 +415,7 @@ class Trader:
           if size > 0:
             self.place_left_order('sell', size)
 
-      elif o_id == self.l_order_id:
+      elif self.check_oid(self.l_order_ids, o_id, state==self.ORDER_STATE_DONE):
         self.lstate = state
         logger.info(
           'left order executed, fill_sz: %s, state: %s' % (fill_sz, state_str))
@@ -403,7 +428,7 @@ class Trader:
           size = fill_notional_usd / fill_px + fill_fee
           self.place_right_order('sell', size)
       else:
-        logger.warning('unknown order recieved, id: %s; ignore it', o_id)
+        self.log_warn_unknown_execed_order(o_id)
 
     if self.state == self.STATE_TRADING and \
        self.lstate == self.ORDER_STATE_DONE and \
