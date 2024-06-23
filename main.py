@@ -10,6 +10,7 @@ import time
 import traceback
 
 from okx.Account import AccountAPI
+from okx.PublicData import PublicAPI
 from okx.okxclient import OkxClient
 from okx.websocket.WsPublicAsync import WsPublicAsync
 from okx.websocket.WsPrivateAsync import WsPrivateAsync
@@ -88,7 +89,6 @@ class Trader:
     self.total_amount = total_amount
     self.single_amount = single_amount
     self.trading_amount = None
-    self.contractor_px = 10 #FIXME
     self.fee_rate = 0.0015 # FIXME
     self.left_px = 1.
     self.right_px = 1.
@@ -113,6 +113,18 @@ class Trader:
     self.l_order_id = None
     self.r_order_id = None
     self.right_remaining = 0.
+    self.contract_px = self.get_contract_px(left, proxy=http_proxy)
+    logger.info('contract price is set to %.2f', self.contract_px)
+
+  @staticmethod
+  def get_contract_px(contract_id, proxy=None):
+    pub = PublicAPI(proxy=proxy, debug=False)
+    msg = pub.get_instruments("FUTURES", instId=contract_id)
+    if (code:= msg['code']) != '0':
+      raise TraderError(
+        'failed to get contract price; code %s, msg: %s' % (code, msg['msg']))
+    return float(msg['data'][0]['ctVal'])
+
 
   def try_to_run(self):
     if self.state == self.STATE_INIT:
@@ -218,18 +230,18 @@ class Trader:
     self.spread_satisfied += 1
     if not self.check_spread(spread):
       return False
-    # Floor trading_amount (in USDT) to multiple of a single contractor price.
-    # The contractor price is corrected to the actual USDT we need to pay to
-    # short a future contractor.
+    # Floor trading_amount (in USDT) to multiple of a single contract price.
+    # The contract price is corrected to the actual USDT we need to pay to
+    # short a future contract.
     trading_amount = min(self.single_amount, self.total_amount)
-    actual_contract_px = self.contractor_px / self.left_px * self.right_px
-    contractor_num = int(trading_amount / actual_contract_px)
-    if contractor_num == 0:
+    actual_contract_px = self.contract_px / self.left_px * self.right_px
+    contract_num = int(trading_amount / actual_contract_px)
+    if contract_num == 0:
       return False
-    self.trading_amount = trading_amount = contractor_num * actual_contract_px
+    self.trading_amount = trading_amount = contract_num * actual_contract_px
     size = trading_amount / self.right_px * (1. + self.fee_rate)
     # size also equals,
-    #   contractor_num * self.contractor_px / self.left_px * (1. + self.fee_rate)
+    #   contract_num * self.contract_px / self.left_px * (1. + self.fee_rate)
     self.place_right_order('buy', size)
     return True
 
@@ -270,7 +282,7 @@ class Trader:
   async def start_monitoring(self):
     logger.info("monitor started; unexecuted amount: %f", self.total_amount)
     if self.mode == self.MODE_OPEN:
-      min_unit = self.contractor_px
+      min_unit = self.contract_px
     else:
       min_unit = 1
     while self.total_amount >= min_unit:
@@ -366,15 +378,15 @@ class Trader:
           if fill_sz == '0':
             continue
           right_remaining = float(fill_sz) + self.right_remaining
-          contractor_px = self.contractor_px
+          contract_px = self.contract_px
           # floor the future number
-          size = right_remaining * self.left_px / contractor_px
+          size = right_remaining * self.left_px / contract_px
           size = int(size + 0.1) # add 0.1 to ignore slipage
           logger.info('unblanced right holdings: %f' % right_remaining)
 
           # FIXME: correct right_remaining by actual trading price
           self.right_remaining = \
-              right_remaining - size * contractor_px / self.left_px
+              right_remaining - size * contract_px / self.left_px
           if size > 0:
             self.place_left_order('sell', size)
 
@@ -503,10 +515,10 @@ class Trader:
       loop.close()
 
 
-def set_trade_mode(trade_mode):
+def set_trade_mode(trade_mode, proxy=None):
   account = AccountAPI(
     api_key, secret_key, passphrase, flag=flag,
-    debug=False, proxy=http_proxy)
+    debug=False, proxy=proxy)
   res = account.set_position_mode(trade_mode)
   if res['code'] != '0':
     raise TraderError(
@@ -515,10 +527,10 @@ def set_trade_mode(trade_mode):
   logger.info('set trade mode to %s' % trade_mode)
 
 
-def set_leverage(inst_id, leverage):
+def set_leverage(inst_id, leverage, proxy=None):
   account = AccountAPI(
     api_key, secret_key, passphrase, flag=flag,
-    debug=False, proxy=http_proxy)
+    debug=False, proxy=proxy)
   res = account.set_leverage(
     instId=inst_id, lever=leverage, mgnMode='isolated')
   if res['code'] != '0':
@@ -580,8 +592,8 @@ future = 'XRP-USD-240927'
 
 http_proxy = 'socks5://172.18.80.1:7890'
 
-# set_trade_mode('net_mode')
-set_leverage(future, '1.5')
+# set_trade_mode('net_mode', proxy=http_proxy)
+set_leverage(future, '1.5', proxy=http_proxy)
 
 loop = asyncio.get_event_loop()
 #trader = Trader(loop, future, spot, Trader.MODE_OPEN, 3., 4000, 713,
