@@ -89,7 +89,7 @@ class Trader:
     self.total_amount = total_amount
     self.single_amount = single_amount
     self.trading_amount = None
-    self.fee_rate = 0.0015 # FIXME
+    self.fee_rate = 0.0005 + (0.001 if 'USDT' in right else 0.0007)
     self.left_px = 99999999. if mode == self.MODE_CLOSE else 1.
     self.right_px = 1.
     self.state = self.STATE_INIT
