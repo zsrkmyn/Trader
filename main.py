@@ -90,7 +90,7 @@ class Trader:
     self.single_amount = single_amount
     self.trading_amount = None
     self.fee_rate = 0.0015 # FIXME
-    self.left_px = 1.
+    self.left_px = 99999999. if mode == self.MODE_CLOSE else 1.
     self.right_px = 1.
     self.state = self.STATE_INIT
     self.lstate = self.ORDER_STATE_DONE
@@ -164,7 +164,7 @@ class Trader:
     self.try_to_run()
 
 
-  def check_spread(self, spread):
+  def check_spread_satisfied(self):
     logger.info('spread satisfied: %d', self.spread_satisfied)
     if self.spread_satisfied < 3:
       return False
@@ -227,7 +227,7 @@ class Trader:
       self.spread_satisfied = 0
       return False
     self.spread_satisfied += 1
-    if not self.check_spread(spread):
+    if not self.check_spread_satisfied():
       return False
     # Floor trading_amount (in USDT) to multiple of a single contract price.
     # The contract price is corrected to the actual USDT we need to pay to
@@ -252,7 +252,7 @@ class Trader:
       self.spread_satisfied = 0
       return False
     self.spread_satisfied += 1
-    if not self.check_spread(spread):
+    if not self.check_spread_satisfied():
       return False
     self.trading_amount = min(self.single_amount, self.total_amount)
     self.place_left_order('buy', self.trading_amount)
