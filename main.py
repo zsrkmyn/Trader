@@ -118,7 +118,7 @@ class Trader:
 
   @staticmethod
   def get_contract_px(contract_id, proxy=None):
-    pub = PublicAPI(proxy=proxy, debug=False)
+    pub = PublicAPI(proxy=proxy, flag=flag, debug=False)
     msg = pub.get_instruments("FUTURES", instId=contract_id)
     if (code:= msg['code']) != '0':
       raise TraderError(
