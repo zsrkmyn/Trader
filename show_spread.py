@@ -40,9 +40,12 @@ families = ('BTC-USD', 'ETH-USD', 'XRP-USD')
 
 print('%-16s %-10s %-8s %7s %7s' % ('Future', 'Spot', 'Delivery', 'Spread', 'APY'))
 
-spot_pxs = get_prices('SPOT', '', True)
+import sys
+is_close = len(sys.argv) > 1 and sys.argv[1] == 'close'
+
+spot_pxs = get_prices('SPOT', '', not is_close)
 for family in families:
-  future_pxs = get_prices('FUTURES', family, False)
+  future_pxs = get_prices('FUTURES', family, is_close)
   for futrue_id, settle, exp_time in get_futures(family):
     spot_id = settle + '-USDC'
     now = int(time.time())
