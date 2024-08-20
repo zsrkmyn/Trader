@@ -422,7 +422,7 @@ class Trader:
         if self.mode == self.MODE_CLOSE:
           if fill_sz == '0':
             continue
-          fill_notional_usd = float(data['fillNotionalUsd'])
+          fill_notional_usd = float(fill_sz) * self.contract_px
           fill_px = float(data['fillPx'])
           fill_fee = float(data['fee'])
           size = fill_notional_usd / fill_px + fill_fee
