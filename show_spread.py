@@ -36,7 +36,7 @@ def get_prices(inst_type, inst_family, is_ask=False):
   return {d['instId'] : float(px) for d in msg['data'] if (px:=d[px_key])}
 
 
-families = ('BTC-USD', 'ETH-USD', 'XRP-USD')
+families = ('BTC-USD', 'ETH-USD')
 
 print('%-16s %-10s %-8s %7s %7s' % ('Future', 'Spot', 'Delivery', 'Spread', 'APY'))
 
@@ -49,7 +49,7 @@ for family in families:
   for futrue_id, settle, exp_time in get_futures(family):
     spot_id = settle + '-USDC'
     now = int(time.time())
-    day_left = (exp_time - now) // (60 * 60 * 24)
+    day_left = (exp_time - now) / (60 * 60 * 24)
     future_px = future_pxs[futrue_id]
     spot_px = spot_pxs[spot_id]
     spread_p = (future_px - spot_px) / spot_px * 100
