@@ -480,12 +480,16 @@ class Trader:
 
 
   def calibrate_local_time(self):
+    from datetime import datetime
     client = OkxClient(proxy=self.http_proxy)
     lag = []
     for i in range(3):
       t0 = int(time.time() * 1000)
-      server_time = int(client._get_timestamp())
+      strtime = client._get_timestamp()
       t1 = int(time.time() * 1000)
+      server_time = int(
+        datetime.strptime(strtime, "%Y-%m-%dT%H:%M:%S.%fZ").timestamp() * 1000)
+      server_time += 8 * 3600 * 1000
       lag.append((t1 - t0) / 2)
     lag = round(sum(lag) / len(lag))
     self.time_diff = t1 - (server_time + lag)
