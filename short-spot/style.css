@@ -1,0 +1,41 @@
+/* 基础样式 */
+.container {
+	margin: 20px;
+	padding: 10px;
+	border: 1px solid #ccc;
+	border-radius: 5px;
+}
+
+.header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 10px;
+	cursor: pointer;
+}
+
+/* 按钮样式 */
+.toggle-btn {
+	padding: 5px 10px;
+	background-color: #4CAF50;
+	color: white;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+}
+
+.toggle-btn:hover {
+	background-color: #45a049;
+}
+
+/* 内容区域样式 */
+.content {
+	padding: 10px;
+	display: none;
+}
+
+/* 展开时的样式 */
+.content.active {
+	display: block;
+}
